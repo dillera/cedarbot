@@ -23,7 +23,31 @@ import {
 import ChatMessageComponent from "./components/ChatMessage";
 import HarnessPanel from "./components/HarnessPanel";
 import PdfViolationReport, { PdfAnalysisResult } from "./components/PdfViolationReport";
-import { ChatMessage, HarnessLogEntry, PolicyInfo } from "./types";
+import ProcessMeter from "./components/ProcessMeter";
+import { ChatMessage, HarnessLogEntry, PolicyInfo, PipelineStage } from "./types";
+
+const IDLE_PIPELINE: PipelineStage[] = [
+  { id: "receive",  label: "Receive",       status: "pending", duration_ms: null },
+  { id: "session",  label: "Session",       status: "pending", duration_ms: null },
+  { id: "policy",   label: "Policy Check",  status: "pending", duration_ms: null },
+  { id: "llm",      label: "LLM Inference", status: "pending", duration_ms: null },
+  { id: "memory",   label: "Memory",        status: "pending", duration_ms: null },
+  { id: "complete", label: "Complete",       status: "pending", duration_ms: null },
+];
+
+/** Simulate in-flight stage progression while waiting for the backend. */
+function advanceInFlight(stages: PipelineStage[], elapsed: number): PipelineStage[] {
+  // Approximate timings: receive ~0ms, session ~50ms, policy ~150ms, llm ~300ms+
+  const thresholds = [0, 50, 150, 600, 0, 0]; // memory + complete filled by backend
+  let cumulative = 0;
+  return stages.map((s, i) => {
+    cumulative += thresholds[i];
+    if (i >= 4) return { ...s, status: "pending" }; // memory/complete unknown until response
+    if (elapsed > cumulative + thresholds[i]) return { ...s, status: "done" };
+    if (elapsed > cumulative) return { ...s, status: "active" };
+    return { ...s, status: "pending" };
+  });
+}
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -52,6 +76,10 @@ export default function Home() {
   const [pdfContext, setPdfContext] = useState<string | null>(null);
   const [pdfFilename, setPdfFilename] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [pipeline, setPipeline] = useState<PipelineStage[]>([]);
+  const [pipelineVisible, setPipelineVisible] = useState(false);
+  const pipelineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pipelineStartRef = useRef<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -206,6 +234,15 @@ export default function Home() {
     setInput("");
     setLoading(true);
 
+    // Start in-flight pipeline animation
+    setPipelineVisible(true);
+    pipelineStartRef.current = performance.now();
+    setPipeline(IDLE_PIPELINE.map((s) => ({ ...s })));
+    pipelineTimerRef.current = setInterval(() => {
+      const elapsed = performance.now() - pipelineStartRef.current;
+      setPipeline((prev) => advanceInFlight(prev, elapsed));
+    }, 60);
+
     try {
       const conversationHistory = messages.map((m) => ({
         role: m.role,
@@ -253,6 +290,10 @@ export default function Home() {
           output: prev.output + output_tokens,
         }));
       }
+      // Replace in-flight animation with real pipeline data
+      if (data.pipeline && data.pipeline.length > 0) {
+        setPipeline(data.pipeline);
+      }
       refreshPolicies();
       refreshMemoryCount(sessionId);
     } catch (err) {
@@ -265,8 +306,14 @@ export default function Home() {
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
+      if (pipelineTimerRef.current) {
+        clearInterval(pipelineTimerRef.current);
+        pipelineTimerRef.current = null;
+      }
       setLoading(false);
       inputRef.current?.focus();
+      // Auto-hide the pipeline meter after a brief display
+      setTimeout(() => setPipelineVisible(false), 4000);
     }
   };
 
@@ -381,6 +428,9 @@ export default function Home() {
           </button>
         </div>
       </header>
+
+      {/* Process Meter */}
+      <ProcessMeter stages={pipeline} visible={pipelineVisible} />
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">

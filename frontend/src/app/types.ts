@@ -28,3 +28,10 @@ export interface PolicyInfo {
   description: string;
   restricted_keywords: string[];
 }
+
+export interface PipelineStage {
+  id: string;
+  label: string;
+  status: "pending" | "active" | "done" | "skipped" | "error";
+  duration_ms: number | null;
+}

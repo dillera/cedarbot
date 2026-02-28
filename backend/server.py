@@ -9,6 +9,7 @@ Routes:
 
 import io
 import os
+import time
 from contextlib import asynccontextmanager
 from collections import OrderedDict
 
@@ -175,11 +176,19 @@ class TokenUsage(BaseModel):
     total_tokens: int = 0
 
 
+class PipelineStage(BaseModel):
+    id: str
+    label: str
+    status: str = "pending"   # pending | active | done | skipped | error
+    duration_ms: float | None = None
+
+
 class ChatResponse(BaseModel):
     reply: str
     blocked: bool
     harness_log: HarnessLogEntry
     token_usage: TokenUsage = TokenUsage()
+    pipeline: list[PipelineStage] = []
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -194,14 +203,45 @@ async def chat(req: ChatRequest):
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    session = _get_session(req.session_id)
+    # ── Pipeline stage tracking ──────────────────────────────────────────────
+    stages = [
+        PipelineStage(id="receive",  label="Receive"),
+        PipelineStage(id="session",  label="Session"),
+        PipelineStage(id="policy",   label="Policy Check"),
+        PipelineStage(id="llm",      label="LLM Inference"),
+        PipelineStage(id="memory",   label="Memory"),
+        PipelineStage(id="complete", label="Complete"),
+    ]
+    stage_map = {s.id: s for s in stages}
 
-    # Step 1: Check the message against Cedar policies
+    def mark(stage_id: str, status: str, t0: float | None = None) -> float:
+        stage_map[stage_id].status = status
+        now = time.perf_counter()
+        if t0 is not None:
+            stage_map[stage_id].duration_ms = round((now - t0) * 1000, 2)
+        return now
+
+    # Stage 1: Receive
+    t = mark("receive", "done")
+    t0_receive = t
+
+    # Stage 2: Session
+    t = mark("session", "active", None)
+    session = _get_session(req.session_id)
+    t = mark("session", "done", t)
+
+    # Stage 3: Policy Check
+    t = mark("policy", "active", None)
     harness_result = await check_message(req.message)
     log_entry = HarnessLogEntry(**harness_result.to_dict())
+    t = mark("policy", "done", t)
 
-    # Step 2: If blocked, do NOT store in memory — return policy violation
+    # If blocked → skip LLM + memory
     if not harness_result.allowed:
+        mark("llm", "skipped")
+        mark("memory", "skipped")
+        mark("complete", "done", t0_receive)
+
         policy_name = "Unknown Policy"
         if harness_result.policy_id and harness_result.to_dict().get("policy_details"):
             policy_name = harness_result.to_dict()["policy_details"]["name"]
@@ -216,19 +256,28 @@ async def chat(req: ChatRequest):
             f"This topic is restricted by the active Cedar policy set. "
             f"Please ask about a different topic."
         )
-        return ChatResponse(reply=blocked_reply, blocked=True, harness_log=log_entry)
+        return ChatResponse(
+            reply=blocked_reply, blocked=True, harness_log=log_entry, pipeline=stages,
+        )
 
-    # Step 3: Allowed — build messages from server memory and call LLM
+    # Stage 4: LLM Inference
+    t = mark("llm", "active", None)
     try:
         llm = _get_llm()
         messages = _build_messages_for_llm(session, req.message)
         response = await llm.ainvoke(messages)
         reply = str(response.content)
+        t = mark("llm", "done", t)
     except Exception as e:
+        t = mark("llm", "error", t)
+        mark("memory", "skipped")
+        mark("complete", "done", t0_receive)
         reply = f"Error communicating with LLM: {str(e)}"
-        return ChatResponse(reply=reply, blocked=False, harness_log=log_entry)
+        return ChatResponse(
+            reply=reply, blocked=False, harness_log=log_entry, pipeline=stages,
+        )
 
-    # Step 4: Extract token usage from response metadata
+    # Extract token usage
     meta = getattr(response, "usage_metadata", None) or {}
     token_usage = TokenUsage(
         input_tokens=meta.get("input_tokens", 0),
@@ -236,11 +285,19 @@ async def chat(req: ChatRequest):
         total_tokens=meta.get("total_tokens", 0),
     )
 
-    # Step 5: Persist this turn in server-side memory
+    # Stage 5: Memory
+    t = mark("memory", "active", None)
     session.add_message(HumanMessage(content=req.message))
     session.add_message(AIMessage(content=reply))
+    t = mark("memory", "done", t)
 
-    return ChatResponse(reply=reply, blocked=False, harness_log=log_entry, token_usage=token_usage)
+    # Stage 6: Complete
+    mark("complete", "done", t0_receive)
+
+    return ChatResponse(
+        reply=reply, blocked=False, harness_log=log_entry,
+        token_usage=token_usage, pipeline=stages,
+    )
 
 
 @app.get("/api/chat/history")
