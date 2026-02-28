@@ -49,6 +49,30 @@ function advanceInFlight(stages: PipelineStage[], elapsed: number): PipelineStag
   });
 }
 
+const IDLE_PDF_PIPELINE: PipelineStage[] = [
+  { id: "upload",   label: "Upload",            status: "pending", duration_ms: null },
+  { id: "parse",    label: "Parse PDF",         status: "pending", duration_ms: null },
+  { id: "extract",  label: "Extract Text",      status: "pending", duration_ms: null },
+  { id: "owner",    label: "Identify Owner",    status: "pending", duration_ms: null },
+  { id: "semantic", label: "Semantic Analysis",  status: "pending", duration_ms: null },
+  { id: "policy",   label: "Policy Check",      status: "pending", duration_ms: null },
+  { id: "complete", label: "Complete",           status: "pending", duration_ms: null },
+];
+
+/** Simulate in-flight PDF pipeline stages while waiting for backend. */
+function advancePdfInFlight(stages: PipelineStage[], elapsed: number): PipelineStage[] {
+  // Upload ~100ms, Parse ~200ms, Extract ~400ms, Owner ~500ms, Semantic ~2000ms+, Policy/Complete last
+  const thresholds = [0, 100, 200, 300, 400, 3000, 0];
+  let cumulative = 0;
+  return stages.map((s, i) => {
+    cumulative += thresholds[i];
+    if (i >= 6) return { ...s, status: "pending" };
+    if (elapsed > cumulative + thresholds[i]) return { ...s, status: "done" };
+    if (elapsed > cumulative) return { ...s, status: "active" };
+    return { ...s, status: "pending" };
+  });
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -166,17 +190,35 @@ export default function Home() {
     setPdfResult(null);
     setPdfContext(null);
     setPdfFilename(file.name);
+
+    // Start PDF pipeline animation
+    setPipelineVisible(true);
+    pipelineStartRef.current = performance.now();
+    setPipeline(IDLE_PDF_PIPELINE.map((s) => ({ ...s })));
+    pipelineTimerRef.current = setInterval(() => {
+      const elapsed = performance.now() - pipelineStartRef.current;
+      setPipeline((prev) => advancePdfInFlight(prev, elapsed));
+    }, 60);
+
     try {
       const form = new FormData();
       form.append("file", file);
       const res = await fetch("/api/upload-pdf", { method: "POST", body: form });
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-      const data: PdfAnalysisResult = await res.json();
-      setPdfResult(data);
+      const data = await res.json();
+      setPdfResult(data as PdfAnalysisResult);
+      // Replace animation with real pipeline data
+      if (data.pipeline && data.pipeline.length > 0) {
+        setPipeline(data.pipeline);
+      }
     } catch {
       setPdfResult(null);
       setPdfFilename(null);
     } finally {
+      if (pipelineTimerRef.current) {
+        clearInterval(pipelineTimerRef.current);
+        pipelineTimerRef.current = null;
+      }
       setPdfUploading(false);
     }
   }, []);

@@ -10,6 +10,10 @@ import {
   SkipForward,
   XCircle,
   Loader2,
+  Upload,
+  FileSearch,
+  FileText,
+  Fingerprint,
 } from "lucide-react";
 import { PipelineStage } from "../types";
 
@@ -19,12 +23,19 @@ interface Props {
 }
 
 const STAGE_ICONS: Record<string, React.ElementType> = {
+  // Chat pipeline
   receive: Radio,
   session: UserCheck,
   policy: Shield,
   llm: BrainCircuit,
   memory: Database,
   complete: CheckCircle2,
+  // PDF pipeline
+  upload: Upload,
+  parse: FileSearch,
+  extract: FileText,
+  owner: Fingerprint,
+  semantic: BrainCircuit,
 };
 
 const STATUS_COLORS: Record<string, string> = {

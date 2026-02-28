@@ -429,34 +429,75 @@ async def upload_pdf(file: UploadFile = File(...)):
     except ImportError:
         raise HTTPException(status_code=500, detail="pypdf not installed")
 
+    # ── Pipeline stage tracking ──────────────────────────────────────────────
+    stages: list[PipelineStage] = [
+        PipelineStage(id="upload",    label="Upload"),
+        PipelineStage(id="parse",     label="Parse PDF"),
+        PipelineStage(id="extract",   label="Extract Text"),
+        PipelineStage(id="owner",     label="Identify Owner"),
+        PipelineStage(id="semantic",  label="Semantic Analysis"),
+        PipelineStage(id="policy",    label="Policy Check"),
+        PipelineStage(id="complete",  label="Complete"),
+    ]
+    stage_map = {s.id: s for s in stages}
+
+    def mark(stage_id: str, status: str, t0: float | None = None) -> float:
+        stage_map[stage_id].status = status
+        now = time.perf_counter()
+        if t0 is not None:
+            stage_map[stage_id].duration_ms = round((now - t0) * 1000, 2)
+        return now
+
+    # Stage 1: Upload
+    t = mark("upload", "active")
+    t0_start = t
     raw = await file.read()
+    t = mark("upload", "done", t)
+
+    # Stage 2: Parse PDF
+    t = mark("parse", "active", None)
     try:
         reader = PdfReader(io.BytesIO(raw))
     except Exception as e:
+        mark("parse", "error", t)
         raise HTTPException(status_code=400, detail=f"Could not parse PDF: {e}")
+    t = mark("parse", "done", t)
 
-    # Extract all text first so _extract_document_owner can scan it
+    # Stage 3: Extract Text
+    t = mark("extract", "active", None)
     page_texts = [page.extract_text() or "" for page in reader.pages]
     full_text = "\n\n".join(page_texts).strip()
+    t = mark("extract", "done", t)
 
-    # Determine the document owner (drives forbid-client-ai-opt-out)
+    # Stage 4: Identify Owner
+    t = mark("owner", "active", None)
     owner = _extract_document_owner(reader, full_text)
     doc_id = file.filename
+    t = mark("owner", "done", t)
 
-    pages: list[dict] = []
-    all_violations: list[dict] = []
+    # Stage 5: Semantic Analysis (LLM per-page)
+    t = mark("semantic", "active", None)
     llm = _get_llm()
-
-    for page_num, page_text in enumerate(page_texts, start=1):
-        # Step 1: LLM semantic analysis — extract structured legal concept flags
-        legal_analysis: LegalAnalysis | None = None
+    page_analyses: list[LegalAnalysis | None] = []
+    for page_text in page_texts:
         if page_text.strip():
             try:
-                legal_analysis = await extract_legal_analysis(page_text, llm)
+                la = await extract_legal_analysis(page_text, llm)
             except Exception:
-                legal_analysis = None  # degrade gracefully; keyword fallback still runs
+                la = None
+        else:
+            la = None
+        page_analyses.append(la)
+    t = mark("semantic", "done", t)
 
-        # Step 2: Cedar adjudication — entity-level + semantic + keyword in one pass
+    # Stage 6: Policy Check (Cedar per-page)
+    t = mark("policy", "active", None)
+    pages: list[dict] = []
+    all_violations: list[dict] = []
+
+    for page_num, (page_text, legal_analysis) in enumerate(
+        zip(page_texts, page_analyses), start=1
+    ):
         result = await check_document(
             page_text, doc_id=doc_id, owner=owner, legal_analysis=legal_analysis
         )
@@ -495,6 +536,11 @@ async def upload_pdf(file: UploadFile = File(...)):
                 "legal_analysis": la_dict,
             })
 
+    t = mark("policy", "done", t)
+
+    # Stage 7: Complete
+    mark("complete", "done", t0_start)
+
     total_pages = len(reader.pages)
     violated = len(all_violations) > 0
 
@@ -509,6 +555,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             "entity_id": owner.entity_id,
             "allows_ai_processing": owner.allows_ai_processing,
         },
+        "pipeline": [s.model_dump() for s in stages],
     }
 
 
