@@ -312,8 +312,7 @@ export default function Home() {
       }
       setLoading(false);
       inputRef.current?.focus();
-      // Auto-hide the pipeline meter after a brief display
-      setTimeout(() => setPipelineVisible(false), 4000);
+      // Keep the meter visible with the last pipeline result
     }
   };
 

@@ -70,27 +70,23 @@ export default function ProcessMeter({ stages, visible }: Props) {
   const isFinished = doneCount === total;
 
   return (
-    <div className={`px-5 py-2.5 bg-[var(--card)] border-b border-[var(--border)] transition-all duration-300 ${
-      isFinished ? "opacity-80" : "opacity-100"
-    }`}>
+    <div className="px-5 py-2.5 bg-[var(--card)] border-b border-[var(--border)] transition-all duration-300">
       {/* Thermometer bar */}
       <div className="relative h-1 rounded-full bg-[var(--border)] mb-3 overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out ${
-            stages.some((s) => s.status === "error")
-              ? "bg-red-500"
-              : stages.some((s) => s.status === "active")
-              ? "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]"
+            stages.some((s) => s.status === "active")
+              ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"
               : isFinished
-              ? "bg-emerald-500"
-              : "bg-[var(--border)]"
+              ? "bg-red-500"
+              : "bg-red-500/40"
           }`}
           style={{ width: `${progress}%` }}
         />
         {/* Animated pulse on active */}
         {stages.some((s) => s.status === "active") && (
           <div
-            className="absolute inset-y-0 rounded-full bg-indigo-400/40 animate-pulse"
+            className="absolute inset-y-0 rounded-full bg-red-400/40 animate-pulse"
             style={{ width: `${progress}%` }}
           />
         )}
