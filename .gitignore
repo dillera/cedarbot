@@ -1,0 +1,28 @@
+# ── Python / Backend ─────────────────────────────────────────────────────────
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+backend/.env
+backend/.sondera/
+
+# Test/scratch scripts (not part of the application)
+backend/test_*.py
+backend/make_*.py
+
+# ── Next.js / Frontend ───────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env*
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
+
+# The frontend has its own .git — treat it as a plain directory from root
+frontend/.git/
+
+# ── General ──────────────────────────────────────────────────────────────────
+.DS_Store
+*.pem
+*.log
+/tmp/
