@@ -5,8 +5,7 @@ backend/*.pyc
 backend/.env
 backend/.sondera/
 
-# Test/scratch scripts (not part of the application)
-backend/test_*.py
+# Scratch/generator scripts (not part of the application)
 backend/make_*.py
 
 # ── Next.js / Frontend ───────────────────────────────────────────────────────

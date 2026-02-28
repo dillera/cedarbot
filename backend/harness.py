@@ -417,12 +417,31 @@ async def check_message(user_message: str) -> HarnessResult:
 
 
 
+def _active_policy_ids() -> list[str]:
+    """Return the @id values that are present in the currently loaded policy text."""
+    import re
+    return re.findall(r'@id\("([^"]+)"\)', _current_policy_text)
+
+
 def get_policies() -> list[dict[str, Any]]:
-    """Return all active policies with their descriptions."""
-    return [
-        {"id": pid, **details}
-        for pid, details in POLICY_DESCRIPTIONS.items()
-    ]
+    """Return descriptions for policies that are actually loaded in the harness.
+
+    This reflects the live state — if a policy was toggled off and Apply was
+    clicked, it will not appear here.
+    """
+    active = _active_policy_ids()
+    result = []
+    for pid in active:
+        if pid in POLICY_DESCRIPTIONS:
+            result.append({"id": pid, **POLICY_DESCRIPTIONS[pid]})
+        else:
+            result.append({
+                "id": pid,
+                "name": pid,
+                "description": "Custom policy (no description registered)",
+                "restricted_keywords": [],
+            })
+    return result
 
 
 def get_policy_text() -> str:
@@ -454,27 +473,28 @@ async def reset_policies() -> None:
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _extract_policy_id(diagnostics: Any) -> str | None:
-    """Try to pull the policy ID from adjudication diagnostics."""
+    """Try to pull the policy ID from adjudication diagnostics (active only)."""
     diag_str = str(diagnostics)
-    for pid in POLICY_DESCRIPTIONS:
+    for pid in _active_policy_ids():
         if pid in diag_str:
             return pid
     return None
 
 
 def _extract_policy_id_from_reason(reason: str) -> str | None:
-    """Try to pull the policy ID from the reason string."""
-    for pid in POLICY_DESCRIPTIONS:
+    """Try to pull the policy ID from the reason string (active only)."""
+    for pid in _active_policy_ids():
         if pid in reason:
             return pid
     return None
 
 
 def _match_policy_by_content(message: str) -> str | None:
-    """Fallback: match the message against known policy keywords."""
+    """Fallback: match the message against keywords of active policies only."""
     msg_lower = message.lower()
-    for pid, details in POLICY_DESCRIPTIONS.items():
-        for kw in details["restricted_keywords"]:
+    for pid in _active_policy_ids():
+        details = POLICY_DESCRIPTIONS.get(pid, {})
+        for kw in details.get("restricted_keywords", []):
             if kw.lower() in msg_lower:
                 return pid
     return None
