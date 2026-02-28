@@ -39,16 +39,16 @@ const STAGE_ICONS: Record<string, React.ElementType> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "text-[var(--muted)] border-[var(--border)] bg-[var(--background)]",
-  active: "text-indigo-400 border-indigo-500/50 bg-indigo-500/10 ring-2 ring-indigo-500/20",
+  pending: "text-red-400 border-red-500/40 bg-red-500/10",
+  active: "text-red-400 border-red-500/50 bg-red-500/10 ring-2 ring-red-500/30",
   done: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
   skipped: "text-[var(--muted)] border-[var(--border)] bg-[var(--background)] opacity-40",
   error: "text-red-400 border-red-500/40 bg-red-500/10",
 };
 
 const CONNECTOR_COLORS: Record<string, string> = {
-  pending: "bg-[var(--border)]",
-  active: "bg-indigo-500/50",
+  pending: "bg-red-500/30",
+  active: "bg-red-500/50",
   done: "bg-emerald-500/50",
   skipped: "bg-[var(--border)] opacity-40",
   error: "bg-red-500/50",
@@ -126,19 +126,19 @@ export default function ProcessMeter({ stages, visible }: Props) {
                     <Icon size={12} />
                   )}
                 </div>
-                <span className={`text-[9px] font-medium leading-tight text-center whitespace-nowrap transition-colors duration-300 ${
-                  stage.status === "active"
-                    ? "text-indigo-400"
-                    : stage.status === "done"
+                <span className={`text-[10px] font-medium leading-tight text-center whitespace-nowrap transition-colors duration-300 ${
+                  stage.status === "done"
                     ? "text-emerald-400"
                     : stage.status === "error"
                     ? "text-red-400"
-                    : "text-[var(--muted)]"
+                    : "text-red-400"
                 }`}>
                   {stage.label}
                 </span>
                 {stage.duration_ms != null && stage.status !== "pending" && (
-                  <span className="text-[8px] font-mono text-[var(--muted)]">
+                  <span className={`text-[11px] font-mono font-semibold transition-colors duration-300 ${
+                    stage.status === "done" ? "text-emerald-300" : "text-red-300"
+                  }`}>
                     {stage.duration_ms < 1000
                       ? `${stage.duration_ms.toFixed(0)}ms`
                       : `${(stage.duration_ms / 1000).toFixed(2)}s`}
@@ -164,10 +164,10 @@ export default function ProcessMeter({ stages, visible }: Props) {
       {/* Total time */}
       {totalMs != null && isFinished && (
         <div className="flex justify-end mt-1.5">
-          <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full ${
+          <span className={`text-[12px] font-mono font-semibold px-2.5 py-0.5 rounded-full ${
             stages.some((s) => s.status === "error")
               ? "text-red-400 bg-red-500/10"
-              : "text-emerald-400 bg-emerald-500/10"
+              : "text-emerald-300 bg-emerald-500/10"
           }`}>
             Total: {totalMs < 1000
               ? `${totalMs.toFixed(0)}ms`
