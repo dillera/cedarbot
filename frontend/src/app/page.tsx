@@ -518,7 +518,8 @@ export default function Home() {
               <PanelRightOpen size={18} />
             )}
           </button>
-          <AscendKitUserButton />
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          <AscendKitUserButton {...{ size: "icon" } as any} />
         </div>
       </header>
 
