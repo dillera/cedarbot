@@ -8,10 +8,13 @@ Routes:
 """
 
 import io
+import logging
 import os
 import time
+from collections import OrderedDict, deque
 from contextlib import asynccontextmanager
-from collections import OrderedDict
+from datetime import datetime, timezone
+from threading import Lock
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query
@@ -37,6 +40,64 @@ from harness import (
 )
 
 load_dotenv()
+
+# ── Structured Logging ───────────────────────────────────────────────────────
+
+
+class RingBufferHandler(logging.Handler):
+    """Stores log records in a bounded in-memory ring buffer for the /api/logs endpoint."""
+
+    def __init__(self, capacity: int = 500):
+        super().__init__()
+        self._buffer: deque[dict] = deque(maxlen=capacity)
+        self._lock = Lock()
+        self._counter = 0
+
+    def emit(self, record: logging.LogRecord):
+        with self._lock:
+            self._counter += 1
+            self._buffer.append({
+                "id": self._counter,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+                "event": getattr(record, "event", None),
+                "data": getattr(record, "data", None),
+            })
+
+    def get_entries(self, level: str | None = None, limit: int = 100, offset: int = 0):
+        with self._lock:
+            entries = list(self._buffer)
+        if level:
+            entries = [e for e in entries if e["level"] == level.upper()]
+        total = len(entries)
+        entries = list(reversed(entries))[offset:offset + limit]
+        return entries, total
+
+    def clear(self):
+        with self._lock:
+            self._buffer.clear()
+            self._counter = 0
+
+
+_ring = RingBufferHandler(capacity=500)
+_ring.setLevel(logging.DEBUG)
+
+_log = logging.getLogger("cedarbot")
+_log.setLevel(logging.DEBUG)
+_log.addHandler(_ring)
+
+_console = logging.StreamHandler()
+_console.setLevel(logging.INFO)
+_console.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(message)s"))
+_log.addHandler(_console)
+
+
+def _slog(level: int, message: str, event: str, **data):
+    """Emit a structured log entry with an event tag and arbitrary key-value data."""
+    _log.log(level, message, extra={"event": event, "data": data if data else None})
+
 
 # ── LLM Configuration ────────────────────────────────────────────────────────
 
@@ -95,19 +156,24 @@ def _get_llm() -> BaseChatModel:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Pre-init harness on startup so first request is fast
+    _slog(logging.INFO, "CedarBot server starting", "startup",
+          cors_origins=CORS_ORIGINS)
     from harness import check_message as _warm
     await _warm("warmup")
+    _slog(logging.INFO, "Harness warmup complete — ready", "startup_complete")
     yield
+    _slog(logging.INFO, "CedarBot server shutting down", "shutdown")
 
 app = FastAPI(title="CedarBot API", lifespan=lifespan)
 
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 SYSTEM_PROMPT = (
@@ -135,9 +201,13 @@ def _get_session(session_id: str) -> InMemoryChatMessageHistory:
         _sessions.move_to_end(session_id)
         return _sessions[session_id]
     if len(_sessions) >= MAX_SESSIONS:
-        _sessions.popitem(last=False)  # evict oldest
+        evicted, _ = _sessions.popitem(last=False)
+        _slog(logging.DEBUG, f"Session evicted: {evicted}", "session_evicted",
+              session_id=evicted)
     history = InMemoryChatMessageHistory()
     _sessions[session_id] = history
+    _slog(logging.DEBUG, f"Session created: {session_id}", "session_created",
+          session_id=session_id, active_sessions=len(_sessions))
     return history
 
 
@@ -236,6 +306,15 @@ async def chat(req: ChatRequest):
     log_entry = HarnessLogEntry(**harness_result.to_dict())
     t = mark("policy", "done", t)
 
+    _slog(logging.INFO,
+          f"Chat policy: {harness_result.decision}",
+          "chat_policy",
+          session_id=req.session_id,
+          message_preview=req.message[:80],
+          decision=harness_result.decision,
+          policy_id=harness_result.policy_id,
+          allowed=harness_result.allowed)
+
     # If blocked → skip LLM + memory
     if not harness_result.allowed:
         mark("llm", "skipped")
@@ -272,6 +351,8 @@ async def chat(req: ChatRequest):
         t = mark("llm", "error", t)
         mark("memory", "skipped")
         mark("complete", "done", t0_receive)
+        _slog(logging.ERROR, f"LLM error: {e}", "llm_error",
+              session_id=req.session_id, error=str(e))
         reply = f"Error communicating with LLM: {str(e)}"
         return ChatResponse(
             reply=reply, blocked=False, harness_log=log_entry, pipeline=stages,
@@ -284,6 +365,14 @@ async def chat(req: ChatRequest):
         output_tokens=meta.get("output_tokens", 0),
         total_tokens=meta.get("total_tokens", 0),
     )
+    _slog(logging.INFO,
+          f"LLM response: {token_usage.total_tokens} tokens",
+          "llm_response",
+          session_id=req.session_id,
+          model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+          input_tokens=token_usage.input_tokens,
+          output_tokens=token_usage.output_tokens,
+          total_tokens=token_usage.total_tokens)
 
     # Stage 5: Memory
     t = mark("memory", "active", None)
@@ -293,6 +382,12 @@ async def chat(req: ChatRequest):
 
     # Stage 6: Complete
     mark("complete", "done", t0_receive)
+    _slog(logging.INFO,
+          f"Chat complete: {stage_map['complete'].duration_ms}ms",
+          "chat_complete",
+          session_id=req.session_id,
+          total_duration_ms=stage_map["complete"].duration_ms,
+          blocked=False)
 
     return ChatResponse(
         reply=reply, blocked=False, harness_log=log_entry,
@@ -342,8 +437,12 @@ async def update_policies_endpoint(req: PolicyUpdateRequest):
     """Hot-reload Cedar policies from new policy text."""
     try:
         await update_policies(req.policy_text)
+        _slog(logging.WARNING, "Policies updated via editor", "policy_update",
+              policy_text_length=len(req.policy_text))
         return {"ok": True, "message": "Policies updated and harness reloaded"}
     except Exception as e:
+        _slog(logging.ERROR, f"Policy update failed: {e}", "policy_update_error",
+              error=str(e)[:200])
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -360,6 +459,8 @@ async def validate_policies_endpoint(req: PolicyUpdateRequest):
         return {"ok": True, "message": "Policy syntax is valid"}
     except Exception as e:
         error_str = str(e)
+        _slog(logging.DEBUG, f"Policy validation failed", "policy_validate_error",
+              error=error_str[:200])
         return JSONResponse(
             status_code=400,
             content={"ok": False, "error": error_str},
@@ -370,6 +471,7 @@ async def validate_policies_endpoint(req: PolicyUpdateRequest):
 async def reset_policies_endpoint():
     """Reset Cedar policies back to the original defaults."""
     await reset_policies()
+    _slog(logging.WARNING, "Policies reset to defaults", "policy_reset")
     return {"ok": True, "message": "Policies reset to defaults"}
 
 
@@ -448,11 +550,16 @@ async def upload_pdf(file: UploadFile = File(...)):
             stage_map[stage_id].duration_ms = round((now - t0) * 1000, 2)
         return now
 
-    # Stage 1: Upload
+    # Stage 1: Upload (25 MB limit)
+    MAX_PDF_SIZE = 25 * 1024 * 1024
     t = mark("upload", "active")
     t0_start = t
     raw = await file.read()
+    if len(raw) > MAX_PDF_SIZE:
+        raise HTTPException(status_code=413, detail="PDF too large (25 MB limit)")
     t = mark("upload", "done", t)
+    _slog(logging.INFO, f"PDF upload: {file.filename} ({len(raw)} bytes)",
+          "pdf_upload", filename=file.filename, size_bytes=len(raw))
 
     # Stage 2: Parse PDF
     t = mark("parse", "active", None)
@@ -474,6 +581,11 @@ async def upload_pdf(file: UploadFile = File(...)):
     owner = _extract_document_owner(reader, full_text)
     doc_id = file.filename
     t = mark("owner", "done", t)
+    _slog(logging.INFO,
+          f"PDF owner: {owner.entity_id} (AI: {'yes' if owner.allows_ai_processing else 'no'})",
+          "pdf_owner_detected",
+          filename=file.filename, owner=owner.entity_id,
+          allows_ai=owner.allows_ai_processing)
 
     # Stage 5: Semantic Analysis (LLM per-page)
     t = mark("semantic", "active", None)
@@ -543,6 +655,12 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     total_pages = len(reader.pages)
     violated = len(all_violations) > 0
+    _slog(logging.WARNING if violated else logging.INFO,
+          f"PDF scan complete: {len(all_violations)} violations in {total_pages} pages",
+          "pdf_scan_complete",
+          filename=file.filename, total_pages=total_pages,
+          violations_count=len(all_violations), violated=violated,
+          duration_ms=stage_map["complete"].duration_ms)
 
     return {
         "filename": file.filename,
@@ -571,3 +689,24 @@ async def get_config():
     model = os.getenv("LLM_MODEL", "gpt-4o-mini")
     has_key = bool(os.getenv("LLM_API_KEY")) and os.getenv("LLM_API_KEY") != "your-api-key-here"
     return {"provider": provider, "model": model, "has_api_key": has_key}
+
+
+# ── Log Viewer Endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/logs")
+async def get_logs(
+    level: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    """Return structured log entries from the in-memory ring buffer."""
+    entries, total = _ring.get_entries(level=level, limit=limit, offset=offset)
+    return {"entries": entries, "total": total, "limit": limit, "offset": offset}
+
+
+@app.delete("/api/logs/clear")
+async def clear_logs():
+    """Clear the in-memory log buffer."""
+    _ring.clear()
+    _slog(logging.INFO, "Log buffer cleared", "logs_cleared")
+    return {"ok": True, "message": "Log buffer cleared"}

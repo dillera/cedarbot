@@ -1,0 +1,31 @@
+# CedarBot Next.js frontend
+# Place in /etc/systemd/system/cedarbot-frontend.service
+# sudo systemctl daemon-reload
+# sudo systemctl enable --now cedarbot-frontend
+
+[Unit]
+Description=CedarBot Next.js Frontend
+After=network.target cedarbot-backend.service
+
+[Service]
+Type=simple
+User=cedarbot
+Group=cedarbot
+WorkingDirectory=/opt/cedarbot/frontend
+Environment=NODE_ENV=production
+Environment=BACKEND_URL=http://127.0.0.1:8000
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cedarbot/frontend
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

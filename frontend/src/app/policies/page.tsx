@@ -20,6 +20,7 @@ import {
   Trash2,
   ShieldCheck,
   ShieldOff,
+  ScrollText,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -417,6 +418,13 @@ export default function PoliciesPage() {
           >
             <ArrowLeft size={15} />
             <span>Back to Chat</span>
+          </Link>
+          <Link
+            href="/logs"
+            className="flex items-center gap-1.5 text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+          >
+            <ScrollText size={13} />
+            <span>Logs</span>
           </Link>
           <div className="w-px h-5 bg-[var(--border)]" />
           <div className="flex items-center gap-2">

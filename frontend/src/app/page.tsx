@@ -19,6 +19,7 @@ import {
   BrainCircuit,
   ArrowDownToLine,
   ArrowUpFromLine,
+  ScrollText,
 } from "lucide-react";
 import ChatMessageComponent from "./components/ChatMessage";
 import HarnessPanel from "./components/HarnessPanel";
@@ -73,11 +74,36 @@ function advancePdfInFlight(stages: PipelineStage[], elapsed: number): PipelineS
   });
 }
 
+// ── sessionStorage helpers for state persistence across navigation ──────────
+const STORAGE_KEY = "cedarbot-chat-state";
+
+function loadPersistedState() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function persistState(
+  messages: ChatMessage[],
+  harnessLogs: HarnessLogEntry[],
+  lastTokens: { input: number; output: number } | null,
+  totalTokens: { input: number; output: number },
+) {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      messages, harnessLogs, lastTokens, totalTokens,
+    }));
+  } catch { /* quota exceeded — non-critical */ }
+}
+
 export default function Home() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const saved = useRef(loadPersistedState());
+  const [messages, setMessages] = useState<ChatMessage[]>(() => saved.current?.messages ?? []);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [harnessLogs, setHarnessLogs] = useState<HarnessLogEntry[]>([]);
+  const [harnessLogs, setHarnessLogs] = useState<HarnessLogEntry[]>(() => saved.current?.harnessLogs ?? []);
   const [policies, setPolicies] = useState<PolicyInfo[]>([]);
   const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null);
   const [showPanel, setShowPanel] = useState(true);
@@ -91,8 +117,13 @@ export default function Home() {
   const [memoryCount, setMemoryCount] = useState(0);
 
   // Token usage — last call + cumulative session totals
-  const [lastTokens, setLastTokens] = useState<{ input: number; output: number } | null>(null);
-  const [totalTokens, setTotalTokens] = useState<{ input: number; output: number }>({ input: 0, output: 0 });
+  const [lastTokens, setLastTokens] = useState<{ input: number; output: number } | null>(() => saved.current?.lastTokens ?? null);
+  const [totalTokens, setTotalTokens] = useState<{ input: number; output: number }>(() => saved.current?.totalTokens ?? { input: 0, output: 0 });
+
+  // Persist chat state to sessionStorage whenever it changes
+  useEffect(() => {
+    persistState(messages, harnessLogs, lastTokens, totalTokens);
+  }, [messages, harnessLogs, lastTokens, totalTokens]);
 
   // PDF state
   const [pdfUploading, setPdfUploading] = useState(false);
@@ -133,14 +164,26 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  const clearMemory = useCallback(async () => {
+  const newSession = useCallback(async () => {
+    // Clear backend memory for current session
     await fetch(`/api/chat/clear?session_id=${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+    // Generate fresh session ID
+    const newSid = crypto.randomUUID();
+    sessionStorage.setItem("cedarbot-session-id", newSid);
+    sessionStorage.removeItem(STORAGE_KEY);
+    setSessionId(newSid);
+    // Reset all local state
     setMemoryCount(0);
     setMessages([]);
     setHarnessLogs([]);
     setSelectedLogIndex(null);
     setLastTokens(null);
     setTotalTokens({ input: 0, output: 0 });
+    setPdfContext(null);
+    setPdfFilename(null);
+    setPdfResult(null);
+    setPipeline([]);
+    setPipelineVisible(false);
   }, [sessionId]);
 
   const refreshPolicies = useCallback(() => {
@@ -442,12 +485,12 @@ export default function Home() {
             <span>{memoryCount} turn{memoryCount !== 1 ? "s" : ""} in memory</span>
           </div>
           <button
-            onClick={clearMemory}
-            title="Clear conversation memory"
+            onClick={newSession}
+            title="Reset session and start a fresh conversation"
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--background)] text-[var(--muted)] hover:text-red-400 transition-colors"
           >
             <Trash2 size={12} />
-            <span>Clear</span>
+            <span>New Session</span>
           </button>
           <Link
             href="/policies"
@@ -455,6 +498,13 @@ export default function Home() {
           >
             <FileCode2 size={12} />
             <span>Edit Policies</span>
+          </Link>
+          <Link
+            href="/logs"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--background)] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+          >
+            <ScrollText size={12} />
+            <span>Logs</span>
           </Link>
           <button
             onClick={() => setShowPanel(!showPanel)}

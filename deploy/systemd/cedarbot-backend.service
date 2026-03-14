@@ -1,0 +1,33 @@
+# CedarBot FastAPI backend
+# Place in /etc/systemd/system/cedarbot-backend.service
+# sudo systemctl daemon-reload
+# sudo systemctl enable --now cedarbot-backend
+
+[Unit]
+Description=CedarBot FastAPI Backend
+After=network.target
+
+[Service]
+Type=simple
+User=cedarbot
+Group=cedarbot
+WorkingDirectory=/opt/cedarbot/backend
+EnvironmentFile=/opt/cedarbot/backend/.env
+ExecStart=/opt/cedarbot/backend/venv/bin/uvicorn server:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cedarbot/backend
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

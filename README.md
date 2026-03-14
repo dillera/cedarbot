@@ -39,6 +39,19 @@ When a restricted topic is detected, the Cedar policy engine blocks the request 
 - **Reset to defaults** button to restore all original policies
 - **Live sync** to the chat page — active policy count updates the moment changes are applied
 
+### System Log Viewer
+- **Structured logging** — every key backend event captured with event tags and structured data
+- **In-memory ring buffer** (500 entries) — no external dependencies, zero configuration
+- **Live auto-refresh** — polls every 2 seconds with a pause/resume toggle
+- **Level filtering** — toggle between All / DEBUG / INFO / WARNING / ERROR
+- **Color-coded entries** — green for INFO, amber for WARNING, red for ERROR, gray for DEBUG
+- **Expandable rows** — click any entry to see its full structured JSON data (session IDs, token counts, policy decisions, durations)
+- **Events logged**: server startup, chat policy decisions (ALLOW/DENY), LLM responses with token usage, PDF uploads and scan results, policy updates/resets, session lifecycle
+
+### Session Management
+- **Persistent chat across navigation** — chat history, harness logs, and token counts survive trips to /logs and /policies
+- **New Session button** — generates a fresh session ID, clears backend memory, and resets all local state for a clean start
+
 ---
 
 ## Architecture
@@ -49,6 +62,7 @@ When a restricted topic is detected, the Cedar policy engine blocks the request 
 │                                                         │
 │  /            Chat page + Process Meter + Harness Panel │
 │  /policies    Per-policy editor with enable/disable     │
+│  /logs        Live structured log viewer                │
 │  /api/*       Proxy routes → FastAPI backend            │
 └───────────────────────┬─────────────────────────────────┘
                         │ HTTP
@@ -65,6 +79,8 @@ When a restricted topic is detected, the Cedar policy engine blocks the request 
 │  GET  /api/chat/history    Session conversation log     │
 │  DELETE /api/chat/clear    Clear session memory         │
 │  GET  /api/config          LLM provider/model info      │
+│  GET  /api/logs            Structured log entries       │
+│  DELETE /api/logs/clear    Clear log buffer             │
 └───────────────────────┬─────────────────────────────────┘
                         │
          ┌──────────────┴──────────────┐
@@ -152,6 +168,9 @@ LLM_MODEL=gpt-4o-mini         # or: gpt-4o, claude-3-5-sonnet-20241022, etc.
 LLM_API_KEY=sk-your-key-here
 LLM_TEMPERATURE=0.7
 
+# CORS — comma-separated allowed origins (no trailing slashes)
+# CORS_ORIGINS=https://cedarbot.yourdomain.com
+
 # Optional: comma-separated entity names that have opted out of AI processing
 # AI_OPT_OUT_ENTITIES=Acme Corp,Example LLC
 
@@ -194,11 +213,18 @@ cedarBot/
 │   ├── test_cedar_entities.py
 │   └── test_new_policies.py
 │
+├── deploy/
+│   ├── nginx/cedarbot.conf             # Nginx reverse proxy config
+│   └── systemd/                        # Systemd service units
+│       ├── cedarbot-backend.service
+│       └── cedarbot-frontend.service
+│
 └── frontend/
     └── src/app/
         ├── page.tsx                        # Chat page
         ├── types.ts                        # Shared TypeScript interfaces
         ├── policies/page.tsx               # Policy editor page
+        ├── logs/page.tsx                   # Live system log viewer
         ├── components/
         │   ├── ProcessMeter.tsx            # Live pipeline stage indicator
         │   ├── HarnessPanel.tsx            # Policy decision log panel
@@ -206,6 +232,8 @@ cedarBot/
         │   └── PdfViolationReport.tsx      # PDF scan results component
         └── api/
             ├── chat/route.ts
+            ├── logs/route.ts
+            ├── logs/clear/route.ts
             ├── policies/route.ts
             ├── policies/text/route.ts
             ├── policies/update/route.ts
@@ -238,7 +266,7 @@ python test_cedar_entities.py
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | Next.js 14, React, Tailwind CSS, Lucide Icons, React Markdown |
+| **Frontend** | Next.js 16, React 19, Tailwind CSS 4, Lucide Icons, React Markdown |
 | **Backend** | Python 3.12, FastAPI, Uvicorn |
 | **LLM** | LangChain, OpenAI (`gpt-4o-mini` default) or Anthropic |
 | **Policy Engine** | Cedar via [Sondera Harness SDK](https://sondera.ai) (local evaluation, no remote API) |
