@@ -25,3 +25,6 @@ frontend/.git/
 *.pem
 *.log
 /tmp/
+
+# AscendKit local files (contains auth/session context)
+.ascendkit/

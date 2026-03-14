@@ -61,6 +61,166 @@ body {
   font-weight: 600;
 }
 
+/* ── AscendKit Auth Page Styles ─────────────────────────────────────────────── */
+
+/* Card container */
+.auth-page [data-slot="card"],
+.auth-page > div > div:first-child {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 2rem;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+/* Headings */
+.auth-page h1, .auth-page h2, .auth-page h3 {
+  color: var(--foreground);
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.auth-page h1 + p, .auth-page h2 + p, .auth-page h3 + p {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-bottom: 1.25rem;
+}
+
+/* Labels */
+.auth-page label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--foreground);
+  margin-bottom: 0.375rem;
+  margin-top: 0.75rem;
+}
+
+/* Inputs */
+.auth-page input[type="email"],
+.auth-page input[type="password"],
+.auth-page input[type="text"] {
+  width: 100%;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.auth-page input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+.auth-page input::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+/* Password row — label + forgot link */
+.auth-page label + a,
+.auth-page a[href*="forgot"],
+.auth-page a[href*="password"] {
+  font-size: 0.8rem;
+  color: var(--accent-light);
+  text-decoration: none;
+}
+.auth-page a[href*="forgot"]:hover,
+.auth-page a[href*="password"]:hover {
+  text-decoration: underline;
+}
+
+/* Primary button (Login / Sign Up) */
+.auth-page form button[type="submit"],
+.auth-page form > button:not([class*="ak-social"]) {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  margin-top: 1rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.auth-page form button[type="submit"]:hover {
+  background: var(--accent-light);
+}
+
+/* Separator ("Or continue with") */
+.auth-page hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem 0;
+}
+
+/* Social buttons */
+.auth-page .ak-social-button,
+.auth-page button[class*="social"],
+.auth-page div > button:not([type="submit"]) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  margin-top: 0.5rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.auth-page .ak-social-button:hover,
+.auth-page button[class*="social"]:hover,
+.auth-page div > button:not([type="submit"]):hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--muted);
+}
+
+/* Social button icons — only constrain SVGs inside buttons, not the logo */
+.auth-page button svg {
+  max-width: 18px;
+  max-height: 18px;
+  flex-shrink: 0;
+}
+
+/* Links (sign up / sign in toggle) */
+.auth-page a {
+  color: var(--accent-light);
+  text-decoration: none;
+  font-weight: 500;
+}
+.auth-page a:hover {
+  text-decoration: underline;
+}
+
+/* Footer text ("Don't have an account?") */
+.auth-page p:last-of-type {
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-top: 1rem;
+}
+
+/* Powered by AscendKit badge */
+.auth-page + div,
+.auth-page [class*="branding"] {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  opacity: 0.6;
+  margin-top: 1.5rem;
+}
+
 /* Pulse animation for harness activity */
 @keyframes harness-pulse {
   0%, 100% { opacity: 1; }

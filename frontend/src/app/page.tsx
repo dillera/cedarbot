@@ -21,6 +21,7 @@ import {
   ArrowUpFromLine,
   ScrollText,
 } from "lucide-react";
+import { AscendKitUserButton } from "@ascendkit/nextjs";
 import ChatMessageComponent from "./components/ChatMessage";
 import HarnessPanel from "./components/HarnessPanel";
 import PdfViolationReport, { PdfAnalysisResult } from "./components/PdfViolationReport";
@@ -517,6 +518,7 @@ export default function Home() {
               <PanelRightOpen size={18} />
             )}
           </button>
+          <AscendKitUserButton />
         </div>
       </header>
 

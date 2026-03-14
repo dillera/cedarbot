@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AscendKitProvider } from "@ascendkit/nextjs";
+import AuthGate from "./components/AuthGate";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -27,7 +29,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <AscendKitProvider>
+          <AuthGate>{children}</AuthGate>
+        </AscendKitProvider>
       </body>
     </html>
   );
